@@ -1,0 +1,261 @@
+import javax.crypto.*;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
+import javax.swing.*;
+import javax.swing.filechooser.FileFilter;
+import java.awt.*;
+import java.io.*;
+import java.security.SecureRandom;
+import java.security.spec.KeySpec;
+import java.util.regex.Pattern;
+
+public class FileEncryptorGUI extends JFrame {
+    private JPasswordField passwordField;
+    private JTextField filePathField;
+    private JProgressBar progressBar;
+    private JButton encryptButton, decryptButton, chooseFileButton;
+    private JCheckBox showPasswordCheckBox;
+    private File selectedFile;
+    
+    private static final String[] ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "jpg", "png"};
+
+    public FileEncryptorGUI() {
+        setTitle("Secure File Encryptor");
+        setSize(600, 300);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new GridBagLayout());
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // File chooser section
+        JPanel filePanel = new JPanel(new FlowLayout());
+        filePathField = new JTextField(30);
+        filePathField.setEditable(false);
+        chooseFileButton = new JButton("Choose File");
+        filePanel.add(filePathField);
+        filePanel.add(chooseFileButton);
+
+        // Password field with show/hide option
+        JPanel passwordPanel = new JPanel(new FlowLayout());
+        passwordField = new JPasswordField(20);
+        showPasswordCheckBox = new JCheckBox("Show Password");
+
+        // Toggle password visibility
+        showPasswordCheckBox.addActionListener(e -> {
+            if (showPasswordCheckBox.isSelected()) {
+                passwordField.setEchoChar((char) 0);
+            } else {
+                passwordField.setEchoChar('•');
+            }
+        });
+
+        passwordPanel.add(new JLabel("Password:"));
+        passwordPanel.add(passwordField);
+        passwordPanel.add(showPasswordCheckBox);
+
+        // Progress bar
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setPreferredSize(new Dimension(300, 25));
+
+        // Buttons
+        JPanel buttonPanel = new JPanel(new FlowLayout());
+        encryptButton = new JButton("Encrypt");
+        decryptButton = new JButton("Decrypt");
+
+        encryptButton.setBackground(Color.GREEN);
+        decryptButton.setBackground(Color.RED);
+        encryptButton.setForeground(Color.WHITE);
+        decryptButton.setForeground(Color.WHITE);
+
+        buttonPanel.add(encryptButton);
+        buttonPanel.add(decryptButton);
+
+        // Add components to layout
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        add(filePanel, gbc);
+
+        gbc.gridy = 1;
+        add(passwordPanel, gbc);
+
+        gbc.gridy = 2;
+        add(progressBar, gbc);
+
+        gbc.gridy = 3;
+        add(buttonPanel, gbc);
+
+        // File chooser action
+        chooseFileButton.addActionListener(e -> chooseFile());
+
+        // Encrypt button action
+        encryptButton.addActionListener(e -> {
+            if (validateInput()) {
+                processFile(true);
+            }
+        });
+
+        // Decrypt button action
+        decryptButton.addActionListener(e -> {
+            if (validateInput()) {
+                processFile(false);
+            }
+        });
+
+        setVisible(true);
+    }
+
+    // File chooser with file type filter
+    private void chooseFile() {
+        JFileChooser fileChooser = new JFileChooser();
+
+        fileChooser.setFileFilter(new FileFilter() {
+            @Override
+            public boolean accept(File file) {
+                if (file.isDirectory()) return true;
+                String fileName = file.getName().toLowerCase();
+                for (String ext : ALLOWED_EXTENSIONS) {
+                    if (fileName.endsWith("." + ext)) return true;
+                }
+                return false;
+            }
+
+            @Override
+            public String getDescription() {
+                return "Allowed Files (*.txt, *.pdf, *.docx, *.jpg, *.png)";
+            }
+        });
+
+        int returnValue = fileChooser.showOpenDialog(null);
+        if (returnValue == JFileChooser.APPROVE_OPTION) {
+            File chosenFile = fileChooser.getSelectedFile();
+            if (isValidFile(chosenFile)) {
+                selectedFile = chosenFile;
+                filePathField.setText(selectedFile.getAbsolutePath());
+            } else {
+                JOptionPane.showMessageDialog(this, "Invalid file type selected!", "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private boolean isValidFile(File file) {
+        String fileName = file.getName().toLowerCase();
+        for (String ext : ALLOWED_EXTENSIONS) {
+            if (fileName.endsWith("." + ext)) return true;
+        }
+        return false;
+    }
+
+    // Validate input
+    private boolean validateInput() {
+        if (selectedFile == null) {
+            JOptionPane.showMessageDialog(this, "Please select a file!", "Error", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+
+        String password = new String(passwordField.getPassword());
+        if (!isValidPassword(password)) {
+            JOptionPane.showMessageDialog(this, "Password must be at least 8 characters long and include:\n"
+                    + "- One uppercase letter\n"
+                    + "- One special character\n"
+                    + "- One number", "Weak Password", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        return true;
+    }
+
+    // Check if password meets security criteria
+    private boolean isValidPassword(String password) {
+        return password.length() >= 8 &&
+                Pattern.compile("[A-Z]").matcher(password).find() &&
+                Pattern.compile("[0-9]").matcher(password).find() &&
+                Pattern.compile("[!@#$%^&*(),.?\":{}|<>]").matcher(password).find();
+    }
+
+    // Process encryption or decryption
+    private void processFile(boolean isEncryption) {
+        new Thread(() -> {
+            try {
+                progressBar.setValue(0);
+                String password = new String(passwordField.getPassword());
+                File outputFile = new File(selectedFile.getAbsolutePath() + (isEncryption ? ".enc" : ".dec"));
+
+                if (isEncryption) {
+                    encryptFile(password, selectedFile, outputFile);
+                } else {
+                    decryptFile(password, selectedFile, outputFile);  // Fixed method call
+                }
+
+                progressBar.setValue(100);
+
+                if (selectedFile.delete()) {
+                    outputFile.renameTo(selectedFile);
+                    JOptionPane.showMessageDialog(this, (isEncryption ? "Encryption" : "Decryption") + " completed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, "Error replacing original file!", "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }).start();
+    }
+
+
+    // Generate key from password
+    private static SecretKey generateKeyFromPassword(String password, byte[] salt) throws Exception {
+        KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 65536, 256);
+        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        byte[] keyBytes = factory.generateSecret(spec).getEncoded();
+        return new SecretKeySpec(keyBytes, "AES");
+    }
+
+    // Encrypt file
+    private void encryptFile(String password, File inputFile, File outputFile) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES");
+        byte[] salt = new byte[16];
+        new SecureRandom().nextBytes(salt);
+        SecretKey key = generateKeyFromPassword(password, salt);
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             FileOutputStream fos = new FileOutputStream(outputFile);
+             CipherOutputStream cos = new CipherOutputStream(fos, cipher)) {
+
+            fos.write(salt);
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                cos.write(buffer, 0, bytesRead);
+            }
+        }
+    }
+    private void decryptFile(String password, File inputFile, File outputFile) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES");
+
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             FileOutputStream fos = new FileOutputStream(outputFile)) {
+
+            byte[] salt = new byte[16];
+            fis.read(salt); // Read salt
+            SecretKey key = generateKeyFromPassword(password, salt);
+            cipher.init(Cipher.DECRYPT_MODE, key);
+            CipherInputStream cis = new CipherInputStream(fis, cipher);
+
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+
+            while ((bytesRead = cis.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+            }
+        }
+    }
+
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(FileEncryptorGUI::new);
+    }
+}
